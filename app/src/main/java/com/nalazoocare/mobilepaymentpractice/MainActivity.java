@@ -16,9 +16,11 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
@@ -43,6 +45,47 @@ public class MainActivity extends AppCompatActivity {
 
         wv = findViewById(R.id.wv);
         mContainer = findViewById(R.id.container);
+
+
+        //추가
+        WebSettings webSettings = wv.getSettings();
+        webSettings.setJavaScriptEnabled(true);
+        webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
+        webSettings.setDomStorageEnabled(true);
+        /* http://developer.android.com/about/versions/android-5.0-changes.html#BehaviorWebView */
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP){
+            webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW); // È¥ÇÕµÈ ÄÁÅÙÃ÷ Çã¿ë
+            CookieManager cookieManager = CookieManager.getInstance();
+            cookieManager.setAcceptCookie(true);										 // Cookie Çã¿ë
+            cookieManager.setAcceptThirdPartyCookies(wv, true);
+        }
+
+        wv.setWebViewClient(new WebViewClient(){
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                Log.d("URL", url);
+                if(url.startsWith("intent")){
+                    return checkAppInstalled(view, url, "intent");
+                }else if (url != null && url.startsWith("market://")) {
+                    try {
+                        Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+                        if (intent != null) {
+                            startActivity(intent);
+                        }
+                        return true;
+                    } catch (URISyntaxException e) {
+                        e.printStackTrace();
+                    }
+                } else if(url.startsWith("http://") || url.startsWith("https://")) {
+                    view.loadUrl(url);
+                }
+                else {
+                    return checkAppInstalled(view, url , "customLink");
+                }
+
+                return true;
+            }
+        });
 
         try {
             clickBtnBuy();
@@ -97,28 +140,141 @@ public class MainActivity extends AppCompatActivity {
         wv.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onCloseWindow(WebView window) {
-
                 mContainer.removeView(window);
                 window.destroy();
-
                 Log.d("MEME", "window close");
             }
         });
-        wv.setWebViewClient(new PaymentWebView());
-        wv.getSettings().setJavaScriptEnabled(true);
-        wv.getSettings().setSavePassword(false);
-        wv.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
+
+//        wv.setWebViewClient(new PaymentWebView());
+//        wv.getSettings().setJavaScriptEnabled(true);
+//        wv.getSettings().setSavePassword(false);
+//        wv.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
+
+
+        wv.setWebChromeClient(new WebChromeClient());
+        String url = "https://ssltest.payjoa.co.kr/m/card_webview/DaouCardMng.jsp";
+        wv.postUrl(url,postData.getBytes());
+
+        //된더거
+//        String url = "https://ssltest.payjoa.co.kr/m/card_webview/DaouCardMng.jsp";
+//        wv.loadUrl(url);
 
 //        AndroidBridge ab = new AndroidBridge(wv,this);
 //        wv.addJavascriptInterface(ab, "Android");
 
 //        String url = "http://192.168.0.116:3000/totalpayment";
-        String url = "https://ssltest.payjoa.co.kr/m/card/DaouCardMng.jsp";
-        wv.postUrl(url,postData.getBytes());
+//        String url = "https://ssltest.payjoa.co.kr/m/card/DaouCardMng.jsp";
+//        wv.postUrl(url,postData.getBytes());
 //        wv.loadUrl(url);
 
 
 
+    }
+
+
+    private boolean checkAppInstalled(WebView view , String url , String type){
+        if(type.equals("intent")){
+            return intentSchemeParser(view, url);
+        } else if(type.equals("customLink")){
+            return customSchemeParser(view, url);
+        }
+        return false;
+    }
+
+    private boolean intentSchemeParser(WebView view , String url) {
+        boolean returnValue = false;
+        try {
+            Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+            if(getPackageManager().resolveActivity(intent , 0) == null){
+                String pakagename = intent.getPackage();
+                if(pakagename != null) {
+//                    if(url.contains("lotteappcard") || url.contains("cloudpay") || url.contains("citispayapp")
+//                    		|| url.contains("hdcardappcardansimclick")){
+                    Uri uri = Uri.parse("market://details?id="+pakagename);
+                    intent = new Intent(Intent.ACTION_VIEW , uri);
+                    //view.getContext().startActivity(intent);
+                    startActivity(intent);
+//                    }
+                    return true;
+                }
+            }
+            Uri uri = Uri.parse(intent.getDataString());
+            intent = new Intent(Intent.ACTION_VIEW , uri);
+            //view.getContext().startActivity(intent);
+            //((Activity) view.getContext()).startActivity(intent);
+            startActivity(intent);
+            return true;
+
+        } catch (URISyntaxException e) {
+            //e.printStackTrace();
+        }
+        return false;
+    }
+
+    private boolean customSchemeParser(WebView view , String url) {
+        String packageName = null;
+        if(url.startsWith("shinhan-sr-ansimclick://")) {        //½ÅÇÑ ¾ÛÄ«µå
+            packageName = "com.shcard.smartpay";
+        }else if(url.startsWith("mpocket.online.ansimclick://")) {  //»ï¼º¾ÛÄ«µå
+            packageName = "kr.co.samsungcard.mpocket";
+        } else if(url.startsWith("hdcardappcardansimclick://")) {       //Çö´ë¾È½É°áÁ¦
+            packageName = "com.hyundaicard.appcard";
+        } else if(url.startsWith("droidxantivirusweb:")){               //droidx ¹é½Å
+            packageName = "net.nshc.droidxantivirus";
+        } else if(url.startsWith("vguardstart://") || url.startsWith("vguardend://")){  //vguard¹é½Å
+            packageName = "kr.co.shiftworks.vguardweb";
+        } else if(url.startsWith("hanaansim")){         //ÇÏ³ª¿ÜÈ¯¾ÛÄ«µå
+            packageName = "com.ilk.visa3d";
+        } else if(url.startsWith("nhappcardansimclick://")) { //³óÇù¾ÛÄ«µå
+            packageName = "nh.smart.mobilecard";
+        } else if(url.startsWith("ahnlabv3mobileplus")){
+            packageName = "com.ahnlab.v3mobileplus";
+        } else if(url.startsWith("smartxpay-transfer://")){
+            packageName = "kr.co.uplus.ecredit";
+        }
+        else {
+            return false;
+        }
+
+        Intent intent = null;
+        //ÇÏµåÄÚµùµÈ ÆÐÅ°Áö¸íÀ¸·Î ¾Û ¼³Ä¡¿©ºÎ¸¦ ÆÇ´ÜÇÏ¿© ÇØ´ç ¾Û ½ÇÇà ¶Ç´Â ¸¶ÄÏ ÀÌµ¿
+        if(chkAppInstalled(view,packageName)){
+
+            try {
+                intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+                Uri uri = Uri.parse(intent.getDataString());
+                intent = new Intent(Intent.ACTION_VIEW , uri);
+//                view.getContext().startActivity(intent);
+                startActivity(intent);
+                return true;
+            } catch (URISyntaxException e) {
+                e.printStackTrace();
+            }
+           /* intent = view.getContext().getPackageManager().getLaunchIntentForPackage(packagePath);
+            view.getContext().startActivity(intent);*/
+        } else {
+            Uri uri = Uri.parse("market://details?id="+packageName);
+            intent = new Intent(Intent.ACTION_VIEW , uri);
+//            view.getContext().startActivity(intent);
+            startActivity(intent);
+            return true;
+        }
+
+        return false;
+    }
+
+
+    private boolean chkAppInstalled(WebView view , String packagePath){
+        boolean appInstalled = false;
+        try {
+//            view.getContext().getPackageManager().getPackageInfo(packagePath, PackageManager.GET_ACTIVITIES);
+            getPackageManager().getPackageInfo(packagePath, PackageManager.GET_ACTIVITIES);
+            appInstalled = true;
+        } catch(PackageManager.NameNotFoundException e){
+            appInstalled = false;
+        }
+        return appInstalled;
     }
 
     private class PaymentWebView extends WebViewClient {
@@ -131,128 +287,27 @@ public class MainActivity extends AppCompatActivity {
         public boolean shouldOverrideUrlLoading(WebView view, String url) {
             Log.i("MEME", "hi 페이 ");
 
-
-            Intent intent = null;
-            if (url.startsWith("intent://")) {
+            // TODO Auto-generated method stub
+            Log.d("URL", url);
+            if(url.startsWith("intent")){
+                return checkAppInstalled(view, url, "intent");
+            }else if (url != null && url.startsWith("market://")) {
                 try {
-                    Context context = view.getContext();
-                    intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
-
+                    Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
                     if (intent != null) {
-                        view.stopLoading();
-
-                        PackageManager packageManager = context.getPackageManager();
-                        ResolveInfo info = packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY);
-                        if (info != null) {
-                            context.startActivity(intent);
-                        } else {
-                            String fallbackUrl = intent.getStringExtra("browser_fallback_url");
-                            view.loadUrl(fallbackUrl);
-                        }
-                        return true;
+                        startActivity(intent);
                     }
+                    return true;
                 } catch (URISyntaxException e) {
-                    Log.e("MEME", "Can't resolve intent://", e);
+                    e.printStackTrace();
                 }
-            } else {
+            } else if(url.startsWith("http://") || url.startsWith("https://")) {
                 view.loadUrl(url);
-                return false;
+            }
+            else {
+                return checkAppInstalled(view, url , "customLink");
             }
             return true;
-
         }
-
-        /**
-         * 각각의 카드사에 해당하는 마켓 install 알림
-         */
-        private AlertDialog getCardInstallAlertDialog(final String coCardNm) {
-            final Hashtable<String, String> cardNm = new Hashtable<>();
-            cardNm.put("HYUNDAE", "현대 앱카드");
-            cardNm.put("SAMSUNG", "삼성 앱카드");
-            cardNm.put("LOTTE", "롯데 앱카드");
-            cardNm.put("SHINHAN", "신한 앱카드");
-            cardNm.put("KB", "국민 앱카드");
-            cardNm.put("HANASK", "하나SK 통합안심클릭");
-            //cardNm.put("SHINHAN_SMART",  "Smart 신한앱");
-
-            final Hashtable<String, String> cardInstallUrl = new Hashtable<String, String>();
-            cardInstallUrl.put("HYUNDAE", "market://details?id=com.hyundaicard.appcard");
-            cardInstallUrl.put("SAMSUNG", "market://details?id=kr.co.samsungcard.mpocket");
-            cardInstallUrl.put("LOTTE", "market://details?id=com.lotte.lottesmartpay");
-            cardInstallUrl.put("SHINHAN", "market://details?id=com.shcard.smartpay");
-            cardInstallUrl.put("KB", "market://details?id=com.kbcard.cxh.appcard");
-            cardInstallUrl.put("HANASK", "market://details?id=com.ilk.visa3d");
-            //cardInstallUrl.put("SHINHAN_SMART",  "market://details?id=com.shcard.smartpay");//여기 수정 필요!!2014.04.01
-
-            return new AlertDialog.Builder(getApplicationContext())
-                    .setIcon(android.R.drawable.ic_dialog_alert)
-                    .setTitle("알림")
-                    .setMessage(cardNm.get(coCardNm) + " 어플리케이션이 설치되어 있지 않습니다. \n설치를 눌러 진행 해 주십시요.\n취소를 누르면 결제가 취소 됩니다.")
-                    .setCancelable(false)
-                    .setPositiveButton("설치", (dialog, which) -> {
-                        String installUrl = cardInstallUrl.get(coCardNm);
-                        Uri uri = Uri.parse(installUrl);
-                        Intent intent = new Intent(Intent.ACTION_VIEW, uri);
-                        Log.d("MEME","<INIPAYMOBILE> Call : " + uri.toString());
-                        try {
-                            startActivity(intent);
-                        } catch (ActivityNotFoundException anfe) {
-//                            ToastHelper.showToastShort(cardNm.get(coCardNm) + "설치 url이 올바르지 않습니다");
-                        }
-                    })
-                    .setNegativeButton("취소", (dialog, which) -> {
-//                        ToastHelper.showToastShort("(-1)결제를 취소 하셨습니다.");
-                        onBackPressed();
-                    })
-                    .create();
-        }
-
-        /**
-         * id에 해당하는 다이어로그 생성 후 반환
-         */
-        private Dialog createDialog(int id, String cardName) {
-            switch (id) {
-                case DIALOG_ISP:
-                    return new AlertDialog.Builder(getApplicationContext())
-                            .setIcon(android.R.drawable.ic_dialog_alert)
-                            .setTitle("알림")
-                            .setMessage("모바일 ISP 어플리케이션이 설치되어 있지 않습니다. \n설치를 눌러 진행 해 주십시요.\n취소를 누르면 결제가 취소 됩니다.")
-                            .setPositiveButton("설치", (dialog, which) -> {
-                                String ispUrl = "http://mobile.vpay.co.kr/jsp/MISP/andown.jsp";
-                                wv.loadUrl(ispUrl);
-                            })
-                            .setNegativeButton("취소", (dialog, which) -> {
-//                                ToastHelper.showToastShort("(-1)결제를 취소 하셨습니다.");
-                                onBackPressed();
-                            })
-                            .create();
-
-                case DIALOG_CARD_APP:
-                    return getCardInstallAlertDialog(cardName);
-            }
-            return null;
-        }
-
-
-//            if (!url.startsWith("http://") && !url.startsWith("http://") && !url.startsWith("javascript:"))
-//            {
-//                Intent intent;
-//
-//                Uri uri = Uri.parse(view.getUrl());
-//                intent = new Intent(MainActivity.this, PopUpActivity.class); // 새창을 여는 액티비티나, 팝업일때 이용하면 용이합니다.
-//                intent.putExtra("url",uri);
-//                startActivity(intent);
-////
-////                Uri uri = Uri.parse(intent.getDataString());
-////                intent = new Intent(Intent.ACTION_VIEW, uri);
-////
-////                startActivity(intent);
-//                }
-//                return true;
-
     }
-
-
-
-
 }
